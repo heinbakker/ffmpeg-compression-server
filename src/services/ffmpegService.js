@@ -70,18 +70,29 @@ async function compressAudio(inputPath, outputPath, presetKey, onProgress) {
 /**
  * Validate audio file format
  * @param {string} filePath - Path to audio file
+ * @param {string} originalFileName - Original filename (for extension check if filePath has no extension)
  * @returns {Promise<boolean>} True if valid audio file
  */
-async function validateAudioFile(filePath) {
+async function validateAudioFile(filePath, originalFileName = null) {
   try {
     const stats = await fs.stat(filePath);
     if (!stats.isFile()) {
       return false;
     }
 
-    // Check file extension
-    const ext = path.extname(filePath).toLowerCase();
+    // Check file extension - use original filename if filePath has no extension (multer behavior)
+    let ext = path.extname(filePath).toLowerCase();
+    if (!ext && originalFileName) {
+      ext = path.extname(originalFileName).toLowerCase();
+    }
+    
     const validExtensions = ['.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.mp4', '.webm'];
+    
+    // If still no extension, we'll trust multer's MIME type validation and FFmpeg's format detection
+    if (!ext) {
+      console.log(`[FFmpegService] No extension found, but MIME type was validated by multer. Allowing file.`);
+      return true;
+    }
     
     return validExtensions.includes(ext);
   } catch (error) {

@@ -184,8 +184,8 @@ router.get('/jobs/:jobId/download', async (req, res) => {
  */
 async function processJob(jobId, filePath, preset, originalFileName) {
   try {
-    // Validate file
-    const isValid = await ffmpegService.validateAudioFile(filePath);
+    // Validate file - use original filename for extension check since multer doesn't preserve extensions
+    const isValid = await ffmpegService.validateAudioFile(filePath, originalFileName);
     if (!isValid) {
       throw new Error('Invalid audio file format');
     }
