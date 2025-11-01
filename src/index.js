@@ -15,6 +15,10 @@ const jobManager = require('./services/jobManager');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust proxy - needed for rate limiting to work correctly behind Coolify/proxy
+// This ensures we get the real client IP address, not the proxy's IP
+app.set('trust proxy', 1);
+
 // CORS Configuration - Only allow requests from your website
 // This prevents other websites from using your API
 const corsOptions = {
