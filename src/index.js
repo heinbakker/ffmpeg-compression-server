@@ -28,6 +28,35 @@ app.use((req, res, next) => {
   next();
 });
 
+// API Key Authentication Middleware
+// Skip authentication for health check endpoint
+app.use((req, res, next) => {
+  // Allow health check without authentication
+  if (req.path === '/api/health' || req.path === '/') {
+    return next();
+  }
+
+  // Check for API key in header
+  const apiKey = req.headers['x-api-key'];
+  const requiredKey = process.env.API_KEY;
+
+  // If API_KEY is not set, allow all requests (for development)
+  if (!requiredKey) {
+    console.warn('[Server] WARNING: API_KEY not set - API is open to everyone!');
+    return next();
+  }
+
+  // If API key is provided, validate it
+  if (apiKey && apiKey === requiredKey) {
+    return next();
+  }
+
+  // No valid API key provided
+  return res.status(401).json({
+    error: 'Unauthorized. Please provide a valid API key in the X-API-Key header.'
+  });
+});
+
 // Ensure upload directory exists
 async function ensureUploadDir() {
   const uploadDir = '/tmp/uploads';
