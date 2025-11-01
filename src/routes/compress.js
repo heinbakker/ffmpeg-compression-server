@@ -4,6 +4,7 @@
 
 const express = require('express');
 const multer = require('multer');
+const rateLimit = require('express-rate-limit');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs').promises;
@@ -12,6 +13,33 @@ const ffmpegService = require('../services/ffmpegService');
 const { isValidPreset } = require('../utils/presets');
 
 const router = express.Router();
+
+// Rate limiting ONLY for job creation (POST requests)
+// Status checks and downloads are not rate limited
+const createJobLimiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // Default: 15 minutes
+  max: parseInt(process.env.RATE_LIMIT_MAX || '10', 10), // Default: 10 requests per window
+  message: {
+    error: 'Too many compression requests. Please try again later.',
+    retryAfter: `${Math.round(parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10) / 60000)} minutes`
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const ip = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
+    console.log(`[RateLimit] Tracking job creation from IP: ${ip}`);
+    return ip;
+  },
+  handler: (req, res) => {
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    console.warn(`[RateLimit] Rate limit exceeded for IP: ${ip}`);
+    const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10);
+    res.status(429).json({
+      error: 'Too many compression requests. Please try again later.',
+      retryAfter: `${Math.round(windowMs / 60000)} minutes`
+    });
+  }
+});
 
 // Configure multer for file uploads
 const upload = multer({
@@ -46,8 +74,9 @@ const upload = multer({
 /**
  * POST /api/jobs
  * Start a new compression job
+ * Rate limited to prevent abuse
  */
-router.post('/jobs', upload.single('file'), async (req, res) => {
+router.post('/jobs', createJobLimiter, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });

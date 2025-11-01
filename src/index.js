@@ -99,8 +99,9 @@ const compressionLimiter = rateLimit({
   }
 });
 
-// Apply rate limiting to compression routes only
-app.use('/api/jobs', compressionLimiter);
+// Apply rate limiting ONLY to job creation (POST /api/jobs)
+// Don't rate limit status checks (GET) or downloads - those are just checking/retrieving
+// The rate limiter will be applied in the route handler instead
 
 // API Key Authentication Middleware
 // Skip authentication for health check endpoint
