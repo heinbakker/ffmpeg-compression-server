@@ -1,0 +1,141 @@
+/**
+ * FFmpeg Compression API Server
+ * Main entry point for the Express server
+ */
+
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs').promises;
+
+const compressRoutes = require('./routes/compress');
+const jobManager = require('./services/jobManager');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
+  credentials: true
+}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Request logging
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
+});
+
+// Ensure upload directory exists
+async function ensureUploadDir() {
+  const uploadDir = '/tmp/uploads';
+  try {
+    await fs.mkdir(uploadDir, { recursive: true });
+    console.log(`[Server] Upload directory ready: ${uploadDir}`);
+  } catch (error) {
+    console.error(`[Server] Failed to create upload directory:`, error);
+    process.exit(1);
+  }
+}
+
+// Health check endpoint
+app.get('/api/health', async (req, res) => {
+  try {
+    // Check if FFmpeg is available
+    const { execSync } = require('child_process');
+    let ffmpegAvailable = false;
+    
+    try {
+      execSync('ffmpeg -version', { stdio: 'ignore' });
+      ffmpegAvailable = true;
+    } catch {
+      ffmpegAvailable = false;
+    }
+
+    const stats = jobManager.getStats();
+
+    res.json({
+      status: 'ok',
+      ffmpeg: ffmpegAvailable ? 'available' : 'unavailable',
+      timestamp: new Date().toISOString(),
+      jobs: stats
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      error: error.message
+    });
+  }
+});
+
+// Compression routes
+app.use('/api', compressRoutes);
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    service: 'FFmpeg Compression API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      createJob: 'POST /api/jobs',
+      getJobStatus: 'GET /api/jobs/:jobId',
+      download: 'GET /api/jobs/:jobId/download'
+    }
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('[Server] Error:', err);
+  
+  const multer = require('multer');
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ 
+        error: `File too large. Maximum size: ${process.env.MAX_FILE_SIZE || 100}MB` 
+      });
+    }
+  }
+
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error'
+  });
+});
+
+// Start server
+async function startServer() {
+  await ensureUploadDir();
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Server] FFmpeg Compression API Server running on port ${PORT}`);
+    console.log(`[Server] Health check: http://localhost:${PORT}/api/health`);
+    console.log(`[Server] Max file size: ${process.env.MAX_FILE_SIZE || 100}MB`);
+    console.log(`[Server] Allowed origins: ${process.env.ALLOWED_ORIGINS || '*'}`);
+  });
+}
+
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('[Server] SIGTERM received, shutting down gracefully...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('[Server] SIGINT received, shutting down gracefully...');
+  process.exit(0);
+});
+
+// Start the server
+startServer().catch(error => {
+  console.error('[Server] Failed to start server:', error);
+  process.exit(1);
+});
+
