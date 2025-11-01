@@ -5,6 +5,7 @@
 
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs').promises;
 
@@ -27,6 +28,24 @@ app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
+
+// Rate Limiting Configuration
+// Limit compression job creation (most resource-intensive)
+const compressionLimiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // Default: 15 minutes
+  max: parseInt(process.env.RATE_LIMIT_MAX || '10', 10), // Default: 10 requests per window
+  message: {
+    error: 'Too many compression requests. Please try again later.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
+  legacyHeaders: false, // Disable `X-RateLimit-*` headers
+  // Skip rate limiting for health checks
+  skip: (req) => req.path === '/api/health' || req.path === '/'
+});
+
+// Apply rate limiting to compression routes only
+app.use('/api/jobs', compressionLimiter);
 
 // API Key Authentication Middleware
 // Skip authentication for health check endpoint
@@ -148,6 +167,7 @@ async function startServer() {
     console.log(`[Server] Health check: http://localhost:${PORT}/api/health`);
     console.log(`[Server] Max file size: ${process.env.MAX_FILE_SIZE || 100}MB`);
     console.log(`[Server] Allowed origins: ${process.env.ALLOWED_ORIGINS || '*'}`);
+    console.log(`[Server] Rate limit: ${process.env.RATE_LIMIT_MAX || 10} requests per ${(parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000') / 60000)} minutes`);
   });
 }
 
