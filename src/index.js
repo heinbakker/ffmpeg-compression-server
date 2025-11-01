@@ -15,11 +15,43 @@ const jobManager = require('./services/jobManager');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
-  credentials: true
-}));
+// CORS Configuration - Only allow requests from your website
+// This prevents other websites from using your API
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
+    // In production, you might want to disable this
+    if (!origin && process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+
+    // Get allowed origins from environment variable
+    const allowedOrigins = process.env.ALLOWED_ORIGINS;
+    
+    // If ALLOWED_ORIGINS is not set, allow all (development mode)
+    if (!allowedOrigins || allowedOrigins === '*') {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn('[Server] WARNING: CORS is open to all origins in production! Set ALLOWED_ORIGINS.');
+      }
+      return callback(null, true);
+    }
+
+    // Split by comma and check if origin is allowed
+    const allowed = allowedOrigins.split(',').map(o => o.trim());
+    
+    if (allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`[Server] CORS blocked request from origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'X-API-Key']
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
