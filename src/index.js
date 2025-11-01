@@ -67,17 +67,36 @@ app.use((req, res, next) => {
 
 // Rate Limiting Configuration
 // Limit compression job creation (most resource-intensive)
+const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10); // Default: 15 minutes
+const maxRequests = parseInt(process.env.RATE_LIMIT_MAX || '10', 10); // Default: 10 requests per window
+
 const compressionLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // Default: 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX || '10', 10), // Default: 10 requests per window
+  windowMs: windowMs,
+  max: maxRequests,
   message: {
     error: 'Too many compression requests. Please try again later.',
-    retryAfter: '15 minutes'
+    retryAfter: `${Math.round(windowMs / 60000)} minutes`
   },
   standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
   legacyHeaders: false, // Disable `X-RateLimit-*` headers
+  // Explicitly use IP address as key (important for per-user tracking)
+  keyGenerator: (req) => {
+    // Get real IP address (works with trust proxy)
+    const ip = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
+    console.log(`[RateLimit] Tracking request from IP: ${ip}`);
+    return ip;
+  },
   // Skip rate limiting for health checks
-  skip: (req) => req.path === '/api/health' || req.path === '/'
+  skip: (req) => req.path === '/api/health' || req.path === '/',
+  // Add handler to log when rate limit is hit
+  handler: (req, res) => {
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    console.warn(`[RateLimit] Rate limit exceeded for IP: ${ip}`);
+    res.status(429).json({
+      error: 'Too many compression requests. Please try again later.',
+      retryAfter: `${Math.round(windowMs / 60000)} minutes`
+    });
+  }
 });
 
 // Apply rate limiting to compression routes only
@@ -203,7 +222,8 @@ async function startServer() {
     console.log(`[Server] Health check: http://localhost:${PORT}/api/health`);
     console.log(`[Server] Max file size: ${process.env.MAX_FILE_SIZE || 100}MB`);
     console.log(`[Server] Allowed origins: ${process.env.ALLOWED_ORIGINS || '*'}`);
-    console.log(`[Server] Rate limit: ${process.env.RATE_LIMIT_MAX || 10} requests per ${(parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000') / 60000)} minutes`);
+    const rateLimitWindow = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000') / 60000;
+    console.log(`[Server] Rate limit: ${process.env.RATE_LIMIT_MAX || 10} requests per ${rateLimitWindow} minutes per IP address`);
   });
 }
 
